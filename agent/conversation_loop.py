@@ -1775,6 +1775,23 @@ def run_conversation(
                         allow_stream=False,
                         is_github_responses=agent._is_copilot_url(),
                     )
+                # ── TDM complexity header (#175) ──────────────────────
+                # Emit X-TDM-Complexity on TDM-bound requests. Value is
+                # derived from task context (cron vs interactive), never
+                # from payload size. See agent/tdm_complexity.py.
+                try:
+                    from agent.tdm_complexity import inject_complexity_header
+                    from hermes_cli.config import load_config as _load_tdm_cfg
+
+                    api_kwargs = inject_complexity_header(
+                        api_kwargs,
+                        provider=agent.provider or "",
+                        base_url=agent.base_url or "",
+                        platform=agent.platform or "",
+                        config=_load_tdm_cfg(),
+                    )
+                except Exception:
+                    pass  # never break the request loop on header failure
                 # Copilot x-initiator: the first API call of a user turn is
                 # marked "user" so Copilot bills a premium request; tool-loop
                 # follow-ups keep the default "agent" header (#3040).
