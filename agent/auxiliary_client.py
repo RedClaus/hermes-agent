@@ -6994,6 +6994,27 @@ def _build_call_kwargs(
         ):
             kwargs["_reasoning_config"] = dict(reasoning_config)
 
+    # ── TDM complexity header (#175) ─────────────────────────────────
+    # Auxiliary calls (compression, vision, titles, …) also reach TDM.
+    # Stamping here covers every aux path — the primary call plus retry
+    # and fallback rebuilds — in one place. Cron detection relies on the
+    # HERMES_CRON_SESSION env var; aux calls carry no platform attribute.
+    try:
+        from agent.tdm_complexity import inject_complexity_header
+        from hermes_cli.config import load_config_readonly as _load_tdm_cfg
+
+        kwargs = inject_complexity_header(
+            kwargs,
+            provider=str(provider or ""),
+            base_url=str(base_url or (
+                _current_custom_base_url() if provider == "custom" else ""
+            )),
+            platform="",
+            config=_load_tdm_cfg(),
+        )
+    except Exception:
+        pass  # never break an auxiliary request on header failure
+
     return kwargs
 
 
@@ -7262,7 +7283,12 @@ def call_llm(
         reasoning_config=reasoning_config,
         base_url=_base_info or resolved_base_url, task=task)
     if extra_headers:
-        kwargs["extra_headers"] = dict(extra_headers)
+        # Merge over any headers _build_call_kwargs already stamped (e.g.
+        # X-TDM-Complexity); explicit caller headers win on key collision.
+        kwargs["extra_headers"] = {
+            **(kwargs.get("extra_headers") or {}),
+            **dict(extra_headers),
+        }
 
     # Convert image blocks for Anthropic-compatible endpoints (e.g. MiniMax)
     _client_base = str(getattr(client, "base_url", "") or "")
